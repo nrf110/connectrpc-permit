@@ -6,7 +6,13 @@ import (
 	"errors"
 )
 
-func NewPermitInterceptor(client CheckClient, tokenExtractor TokenExtractor, claimsMapper ClaimsMapper) connect.UnaryInterceptorFunc {
+func NewPermitInterceptor(
+	client CheckClient,
+	tokenExtractor TokenExtractor,
+	tokenAuthenticator TokenValidator,
+	claimsMapper ClaimsMapper,
+	enabled func() bool,
+) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return connect.UnaryFunc(func(
 			ctx context.Context,
@@ -17,13 +23,18 @@ func NewPermitInterceptor(client CheckClient, tokenExtractor TokenExtractor, cla
 				return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 			}
 			checks := checkable.GetChecks()
-			if !checks.IsPublic() {
-				claims, err := tokenExtractor.Extract(req)
+			if enabled() && !checks.IsPublic() {
+				token, err := tokenExtractor(req)
 				if err != nil {
 					return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 				}
 
-				user, err := claimsMapper.Map(claims)
+				claims, err := tokenAuthenticator.Validate(ctx, token)
+				if err != nil {
+					return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+				}
+
+				user, err := claimsMapper(claims)
 				if err != nil {
 					return nil, err
 				}

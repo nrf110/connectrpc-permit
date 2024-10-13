@@ -3,32 +3,15 @@ package connectrpc_permit
 import (
 	"connectrpc.com/connect"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
+	"strings"
 )
 
-type TokenExtractor interface {
-	Extract(req connect.AnyRequest) (jwt.Claims, error)
-}
+type TokenExtractor func(req connect.AnyRequest) (string, error)
 
-type authorizationHeaderTokenExtractor struct {
-	parser *jwt.Parser
-}
-
-func NewAuthorizationHeaderTokenExtractor() TokenExtractor {
-	return authorizationHeaderTokenExtractor{
-		parser: jwt.NewParser(),
-	}
-}
-
-func (extractor authorizationHeaderTokenExtractor) Extract(req connect.AnyRequest) (jwt.Claims, error) {
+func DefaultTokenExtractor(req connect.AnyRequest) (string, error) {
 	header := req.Header().Get("Authorization")
-	if header == "" {
-		return nil, fmt.Errorf("unauthenticated")
+	if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return "", fmt.Errorf("unauthenticated")
 	}
-	tokenString := header[7:]
-	token, _, err := extractor.parser.ParseUnverified(tokenString, jwt.MapClaims{})
-	if err != nil {
-		return nil, err
-	}
-	return token.Claims, nil
+	return header[7:], nil
 }

@@ -21,15 +21,14 @@ var _ = Describe("Extract", func() {
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Header()).ThenReturn(map[string][]string{})
 
-			extractor := NewAuthorizationHeaderTokenExtractor()
-			_, err := extractor.Extract(req)
+			_, err := DefaultTokenExtractor(req)
 			Expect(err.Error()).To(Equal("unauthenticated"))
 		})
 	})
 
 	When("the authorization header is present", func() {
-		Context("and the token is valid", func() {
-			It("should return the claims", func(ctx SpecContext) {
+		Context("and the token type is bearer", func() {
+			It("should return the token", func(ctx SpecContext) {
 				mock.SetUp(GinkgoT())
 				req := mock.Mock[connect.AnyRequest]()
 				mock.When(req.Header()).ThenReturn(http.Header{
@@ -38,26 +37,9 @@ var _ = Describe("Extract", func() {
 					},
 				})
 
-				extractor := NewAuthorizationHeaderTokenExtractor()
-				claims, err := extractor.Extract(req)
+				result, err := DefaultTokenExtractor(req)
 				Expect(err).To(BeNil())
-				Expect(claims.GetSubject()).To(Equal("1234567890"))
-			})
-		})
-
-		Context("and the token is invalid", func() {
-			It("should return an unauthorized error", func(ctx SpecContext) {
-				mock.SetUp(GinkgoT())
-				req := mock.Mock[connect.AnyRequest]()
-				mock.When(req.Header()).ThenReturn(http.Header{
-					"Authorization": {
-						fmt.Sprintf("bearer %s", badToken),
-					},
-				})
-
-				extractor := NewAuthorizationHeaderTokenExtractor()
-				_, err := extractor.Extract(req)
-				Expect(err).ToNot(BeNil())
+				Expect(result).To(Equal(token))
 			})
 		})
 
@@ -71,8 +53,7 @@ var _ = Describe("Extract", func() {
 					},
 				})
 
-				extractor := NewAuthorizationHeaderTokenExtractor()
-				_, err := extractor.Extract(req)
+				_, err := DefaultTokenExtractor(req)
 				Expect(err).ToNot(BeNil())
 			})
 		})

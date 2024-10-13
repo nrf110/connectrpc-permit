@@ -1,42 +1,42 @@
 package connectrpc_permit
 
 import (
-	"github.com/golang-jwt/jwt/v5"
+	"fmt"
+	"github.com/auth0/go-jwt-middleware/v2/validator"
+	"github.com/go-viper/mapstructure/v2"
 )
 
-type ClaimsMapper interface {
-	Map(claims jwt.Claims) (*User, error)
-}
+type ClaimsMapper func(claims *validator.ValidatedClaims) (*User, error)
 
-type defaultClaimsMapper struct {
-	ClaimsMapper
-	customClaims map[string]string
-}
+type CustomClaimsMapper[T validator.CustomClaims] func(T) (Attributes, error)
 
-func NewDefaultClaimsMapper(customClaims map[string]string) ClaimsMapper {
-	return defaultClaimsMapper{
-		customClaims: customClaims,
-	}
-}
-
-func (mapper defaultClaimsMapper) Map(claims jwt.Claims) (*User, error) {
-	subject, err := claims.GetSubject()
-	if err != nil {
-		return nil, err
-	}
-
-	attributes := make(Attributes)
-	switch t := claims.(type) {
-	case jwt.MapClaims:
-		for k, v := range t {
-			if name, ok := mapper.customClaims[k]; ok {
-				attributes[name] = v
-			}
+func DefaultCustomClaimsMapper[T validator.CustomClaims]() CustomClaimsMapper[T] {
+	return func(t T) (Attributes, error) {
+		attributes := Attributes{}
+		err := mapstructure.Decode(t, &attributes)
+		if err != nil {
+			return nil, err
 		}
+		return attributes, nil
 	}
+}
 
-	return &User{
-		Key:        subject,
-		Attributes: attributes,
-	}, nil
+func DefaultClaimsMapper[T validator.CustomClaims](customClaimsMapper CustomClaimsMapper[T]) ClaimsMapper {
+	return func(claims *validator.ValidatedClaims) (*User, error) {
+		subject := claims.RegisteredClaims.Subject
+		customClaims, ok := claims.CustomClaims.(T)
+		if !ok {
+			return nil, fmt.Errorf("unexpected custom claims type")
+		}
+
+		attributes, err := customClaimsMapper(customClaims)
+		if err != nil {
+			return nil, err
+		}
+
+		return &User{
+			Key:        subject,
+			Attributes: attributes,
+		}, nil
+	}
 }

@@ -4,36 +4,31 @@ import (
 	"connectrpc.com/connect"
 	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/auth0/go-jwt-middleware/v2/validator"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/ovechkin-dm/mockio/mock"
 )
 
-type stubCheckable struct {
-	Checkable
-	checks CheckConfig
-}
-
-func (r *stubCheckable) GetChecks() CheckConfig {
-	return r.checks
-}
-
 var _ = Describe("Authorizing a ConnectRPC request", func() {
+	var claims *validator.ValidatedClaims
+
+	BeforeEach(func() {
+		claims = &validator.ValidatedClaims{
+			RegisteredClaims: validator.RegisteredClaims{
+				Subject: "abcde",
+			},
+		}
+	})
+
 	When("the request is Checkable", func() {
 		It("should invoke the next handler when the check call returns true", func(ctx SpecContext) {
 			mock.SetUp(GinkgoT())
 			client := mock.Mock[CheckClient]()
 			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(true, nil)
 
-			claims := mock.Mock[jwt.Claims]()
-			mock.When(claims.GetSubject()).ThenReturn("abcde", nil)
-
-			extractor := mock.Mock[TokenExtractor]()
-			mock.When(extractor.Extract(mock.Any[connect.AnyRequest]())).ThenReturn(claims, nil)
-
-			claimsMapper := mock.Mock[ClaimsMapper]()
-			mock.When(claimsMapper.Map(claims)).ThenReturn(&User{Key: "abcde"}, nil)
+			tokenValidator := mock.Mock[TokenValidator]()
+			mock.When(tokenValidator.Validate(mock.AnyContext(), mock.AnyString())).ThenReturn(claims, nil)
 
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Any()).ThenReturn(&stubCheckable{checks: CheckConfig{}})
@@ -41,7 +36,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
 				return res, nil
 			})
-			interceptor := NewPermitInterceptor(client, extractor, claimsMapper)
+			interceptor := NewPermitInterceptor(client, tokenExtractor, tokenValidator, claimsMapper, alwaysEnabled)
 			result, err := interceptor(next)(ctx, req)
 			Expect(err).To(BeNil())
 			Expect(result).To(Equal(res))
@@ -52,9 +47,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			client := mock.Mock[CheckClient]()
 			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(true, nil)
 
-			extractor := mock.Mock[TokenExtractor]()
-
-			claimsMapper := mock.Mock[ClaimsMapper]()
+			tokenValidator := mock.Mock[TokenValidator]()
 
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Any()).ThenReturn(&stubCheckable{checks: CheckConfig{
@@ -64,7 +57,31 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
 				return res, nil
 			})
-			interceptor := NewPermitInterceptor(client, extractor, claimsMapper)
+			interceptor := NewPermitInterceptor(client, tokenExtractor, tokenValidator, claimsMapper, alwaysEnabled)
+			result, err := interceptor(next)(ctx, req)
+			Expect(err).To(BeNil())
+			Expect(result).To(Equal(res))
+		})
+
+		It("should invoke the next handler when the enabled is false", func(ctx SpecContext) {
+			mock.SetUp(GinkgoT())
+			client := mock.Mock[CheckClient]()
+			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(false, nil)
+
+			tokenValidator := mock.Mock[TokenValidator]()
+			mock.When(tokenValidator.Validate(mock.AnyContext(), mock.AnyString())).ThenReturn(claims, nil)
+
+			req := mock.Mock[connect.AnyRequest]()
+			mock.When(req.Any()).ThenReturn(&stubCheckable{checks: CheckConfig{
+				Type: SINGLE,
+			}})
+			res := mock.Mock[connect.AnyResponse]()
+			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+				return res, nil
+			})
+			interceptor := NewPermitInterceptor(client, tokenExtractor, tokenValidator, claimsMapper, func() bool {
+				return false
+			})
 			result, err := interceptor(next)(ctx, req)
 			Expect(err).To(BeNil())
 			Expect(result).To(Equal(res))
@@ -75,14 +92,8 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			client := mock.Mock[CheckClient]()
 			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(false, nil)
 
-			claims := mock.Mock[jwt.Claims]()
-			mock.When(claims.GetSubject()).ThenReturn("abcde", nil)
-
-			extractor := mock.Mock[TokenExtractor]()
-			mock.When(extractor.Extract(mock.Any[connect.AnyRequest]())).ThenReturn(claims, nil)
-
-			claimsMapper := mock.Mock[ClaimsMapper]()
-			mock.When(claimsMapper.Map(claims)).ThenReturn(&User{Key: "abcde"}, nil)
+			tokenValidator := mock.Mock[TokenValidator]()
+			mock.When(tokenValidator.Validate(mock.AnyContext(), mock.AnyString())).ThenReturn(claims, nil)
 
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Any()).ThenReturn(&stubCheckable{checks: CheckConfig{}})
@@ -90,7 +101,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
 				return res, nil
 			})
-			interceptor := NewPermitInterceptor(client, extractor, claimsMapper)
+			interceptor := NewPermitInterceptor(client, tokenExtractor, tokenValidator, claimsMapper, alwaysEnabled)
 			result, err := interceptor(next)(ctx, req)
 			Expect(err.Error()).To(Equal("permission_denied: permission denied"))
 			Expect(result).To(BeNil())
@@ -101,11 +112,12 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			client := mock.Mock[CheckClient]()
 			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(false, nil)
 
-			extractor := mock.Mock[TokenExtractor]()
-			mock.When(extractor.Extract(mock.Any[connect.AnyRequest]())).ThenReturn(nil, fmt.Errorf("unauthenticated"))
+			extractor := func(req connect.AnyRequest) (string, error) {
+				return "", fmt.Errorf("unauthenticated")
+			}
 
-			claimsMapper := mock.Mock[ClaimsMapper]()
-			mock.When(claimsMapper.Map(mock.Any[jwt.Claims]())).ThenReturn(&User{Key: "abcde"}, nil)
+			tokenValidator := mock.Mock[TokenValidator]()
+			mock.When(tokenValidator.Validate(mock.AnyContext(), mock.AnyString())).ThenReturn(claims, nil)
 
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Any()).ThenReturn(&stubCheckable{checks: CheckConfig{}})
@@ -113,7 +125,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
 				return res, nil
 			})
-			interceptor := NewPermitInterceptor(client, extractor, claimsMapper)
+			interceptor := NewPermitInterceptor(client, extractor, tokenValidator, claimsMapper, alwaysEnabled)
 			result, err := interceptor(next)(ctx, req)
 			Expect(err.Error()).To(Equal("permission_denied: permission denied"))
 			Expect(result).To(BeNil())
@@ -124,14 +136,8 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			client := mock.Mock[CheckClient]()
 			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(false, fmt.Errorf("unknown error"))
 
-			claims := mock.Mock[jwt.Claims]()
-			mock.When(claims.GetSubject()).ThenReturn("abcde", nil)
-
-			extractor := mock.Mock[TokenExtractor]()
-			mock.When(extractor.Extract(mock.Any[connect.AnyRequest]())).ThenReturn(claims, nil)
-
-			claimsMapper := mock.Mock[ClaimsMapper]()
-			mock.When(claimsMapper.Map(claims)).ThenReturn(&User{Key: "abcde"}, nil)
+			tokenValidator := mock.Mock[TokenValidator]()
+			mock.When(tokenValidator.Validate(mock.AnyContext(), mock.AnyString())).ThenReturn(claims, nil)
 
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Any()).ThenReturn(&stubCheckable{checks: CheckConfig{}})
@@ -139,7 +145,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
 				return res, nil
 			})
-			interceptor := NewPermitInterceptor(client, extractor, claimsMapper)
+			interceptor := NewPermitInterceptor(client, tokenExtractor, tokenValidator, claimsMapper, alwaysEnabled)
 			result, err := interceptor(next)(ctx, req)
 			Expect(err.Error()).To(Equal("unknown error"))
 			Expect(result).To(BeNil())
@@ -152,14 +158,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			client := mock.Mock[CheckClient]()
 			mock.When(client.Check(mock.Any[*User](), mock.Any[CheckConfig]())).ThenReturn(true, nil)
 
-			claims := mock.Mock[jwt.Claims]()
-			mock.When(claims.GetSubject()).ThenReturn("abcde", nil)
-
-			extractor := mock.Mock[TokenExtractor]()
-			mock.When(extractor.Extract(mock.Any[connect.AnyRequest]())).ThenReturn(claims, nil)
-
-			claimsMapper := mock.Mock[ClaimsMapper]()
-			mock.When(claimsMapper.Map(claims)).ThenReturn(&User{Key: "abcde"}, nil)
+			tokenValidator := mock.Mock[TokenValidator]()
 
 			req := mock.Mock[connect.AnyRequest]()
 			mock.When(req.Any()).ThenReturn("")
@@ -167,7 +166,7 @@ var _ = Describe("Authorizing a ConnectRPC request", func() {
 			next := connect.UnaryFunc(func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
 				return res, nil
 			})
-			interceptor := NewPermitInterceptor(client, extractor, claimsMapper)
+			interceptor := NewPermitInterceptor(client, tokenExtractor, tokenValidator, claimsMapper, alwaysEnabled)
 			result, err := interceptor(next)(ctx, req)
 			Expect(err.Error()).To(Equal("permission_denied: permission denied"))
 			Expect(result).To(BeNil())
