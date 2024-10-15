@@ -19,5 +19,9 @@ jobs:
         with:
           input: github-actions
           against: https://github.com/nrf110/connectrpc-permit.git#branch=main,ref=HEAD~1
-      - name: test
-        uses:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Test
+        run: make test
