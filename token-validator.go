@@ -13,9 +13,10 @@ type TokenValidator interface {
 }
 
 type OIDCConfig struct {
-	TrustedIssuer string
-	Audiences     []string
-	CustomClaims  func() validator.CustomClaims
+	TrustedIssuer      string
+	Audiences          []string
+	SignatureAlgorithm validator.SignatureAlgorithm
+	CustomClaims       func() validator.CustomClaims
 }
 
 type OIDCTokenValidator struct {
@@ -30,7 +31,7 @@ func NewOIDCTokenValidator(config OIDCConfig) (*OIDCTokenValidator, error) {
 	provider := jwks.NewCachingProvider(uri, 1*time.Hour)
 	v, err := validator.New(
 		provider.KeyFunc,
-		validator.HS256,
+		config.SignatureAlgorithm,
 		config.TrustedIssuer,
 		config.Audiences,
 		validator.WithCustomClaims(config.CustomClaims))

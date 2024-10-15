@@ -12,6 +12,8 @@ services:
       DOCKER_TLS_VERIFY: 1
       DOCKER_TLS_CERT_DIR: /certs
       DOCKER_CERT_PATH: /certs/client
+    env_file:
+      - git.env
     networks:
       - test
     depends_on:
