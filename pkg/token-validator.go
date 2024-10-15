@@ -1,4 +1,4 @@
-package connectrpc_permit
+package connectpermit
 
 import (
 	"context"

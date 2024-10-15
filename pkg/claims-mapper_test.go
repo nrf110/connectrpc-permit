@@ -1,4 +1,4 @@
-package connectrpc_permit
+package connectpermit
 
 import (
 	"github.com/auth0/go-jwt-middleware/v2/validator"

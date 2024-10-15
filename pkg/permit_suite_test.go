@@ -1,4 +1,4 @@
-package connectrpc_permit_test
+package connectpermit_test
 
 import (
 	"testing"

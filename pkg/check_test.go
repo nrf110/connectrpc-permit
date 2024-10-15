@@ -1,4 +1,4 @@
-package connectrpc_permit
+package connectpermit
 
 import (
 	. "github.com/onsi/ginkgo/v2"
