@@ -7,13 +7,20 @@
   "hostRequirements": {
     "memory": "4gb"
   },
+  "initializeCommand": "${localWorkspaceFolder}/.devcontainer/gitconfig.sh",
   "postCreateCommand": "go version",
-  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+  "postStartCommand": {
+    "1": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+    "2": "git config set --global user.email ${containerEnv:GIT_EMAIL}",
+    "3": "git config set --global user.name ${containerEnv:GIT_NAME}",
+  },
   "customizations": {
     "jetbrains": {
       "backend": "GoLand",
       "plugins": [
-        "com.github.intellij.ginkgo"
+        "com.github.intellij.ginkgo",
+        "com.intellij.bigdatatools.kafka",
+        "com.intellij.ml.llm"
       ]
     }
   }
